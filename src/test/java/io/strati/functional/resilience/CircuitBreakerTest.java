@@ -420,6 +420,116 @@ public class CircuitBreakerTest {
     assertTrue(cb.isClosed());
   }
 
+  @Test
+  public void testOpenCBWithCBHandleConsumerWithoutException() throws InterruptedException {
+    CircuitBreaker cb = CircuitBreakerBuilder.create()
+        .threshold(2)
+        .timeout(2000)
+        .build();
+
+    assertTrue("CB should be closed", cb.isClosed());
+
+    Try<Void> result1 = cb.attempt(cbhandle -> {
+      cbhandle.notifyFailure();
+    });
+    assertTrue(result1.isSuccess());
+    assertTrue(cb.isClosed());
+
+    Try<Void> result2 = cb.attempt(cbhandle -> {
+      cbhandle.notifyFailure();
+    });
+    assertTrue(result2.isSuccess());
+    assertTrue(cb.isOpen());
+    // The third attempt should be refused as the CB is open now
+    assertTrue(cb.attempt(cbhandle -> { return 42; }).isFailure());
+  }
+
+  @Test
+  public void testOpenCBWithCBHandleConsumerWithException() throws InterruptedException {
+    CircuitBreaker cb = CircuitBreakerBuilder.create()
+        .threshold(2)
+        .timeout(2000)
+        .build();
+
+    assertTrue("CB should be closed", cb.isClosed());
+
+    Try<Void> result1 = cb.attempt(cbhandle -> {
+      if (0 == 0) {
+        throw new Exception();
+      }
+    });
+    assertFalse(result1.isSuccess());
+    assertTrue(cb.isClosed());
+
+    Try<Void> result2 = cb.attempt(cbhandle -> {
+      if (0 == 0) {
+        throw new Exception();
+      }
+    });
+    assertFalse(result2.isSuccess());
+    assertTrue(cb.isOpen());
+    // The third attempt should be refused as the CB is open now
+    assertTrue(cb.attempt(cbhandle -> { return 42; }).isFailure());
+  }
+
+  @Test
+  public void testOpenCBWithCBHandleFunctionWithoutException() throws InterruptedException {
+    CircuitBreaker cb = CircuitBreakerBuilder.create()
+        .threshold(2)
+        .timeout(2000)
+        .build();
+
+    assertTrue("CB should be closed", cb.isClosed());
+
+    Try<Integer> result1 = cb.attempt(cbhandle -> {
+      cbhandle.notifyFailure();
+      return 42;
+    });
+    assertTrue(result1.isSuccess());
+    assertEquals(42, result1.get().intValue());
+    assertTrue(cb.isClosed());
+
+    Try<Integer> result2 = cb.attempt(cbhandle -> {
+      cbhandle.notifyFailure();
+      return 42;
+    });
+    assertTrue(result2.isSuccess());
+    assertEquals(42, result2.get().intValue());
+    assertTrue(cb.isOpen());
+    // The third attempt should be refused as the CB is open now
+    assertTrue(cb.attempt(cbhandle -> { return 42; }).isFailure());
+  }
+
+  @Test
+  public void testOpenCBWithCBHandleFunctionWithException() throws InterruptedException {
+    CircuitBreaker cb = CircuitBreakerBuilder.create()
+        .threshold(2)
+        .timeout(2000)
+        .build();
+
+    assertTrue("CB should be closed", cb.isClosed());
+
+    Try<Integer> result1 = cb.attempt(cbhandle -> {
+      if (0 == 0) {
+        throw new Exception();
+      }
+      return 42;
+    });
+    assertFalse(result1.isSuccess());
+    assertTrue(cb.isClosed());
+
+    Try<Integer> result2 = cb.attempt(cbhandle -> {
+      if (0 == 0) {
+        throw new Exception();
+      }
+      return 42;
+    });
+    assertFalse(result2.isSuccess());
+    assertTrue(cb.isOpen());
+    // The third attempt should be refused as the CB is open now
+    assertTrue(cb.attempt(cbhandle -> { return 42; }).isFailure());
+  }
+
   private static <T> void assertFailure(Class<? extends Throwable> ex, Try<T> value) {
     assertTrue("Expected failure didn't occur: " + ex, value.isFailure());
     try {

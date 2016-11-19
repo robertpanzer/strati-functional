@@ -20,6 +20,8 @@ import io.strati.functional.LazyTry;
 import io.strati.functional.Optional;
 import io.strati.functional.Try;
 import io.strati.functional.exception.CircuitBreakerOpenException;
+import io.strati.functional.function.TryConsumer;
+import io.strati.functional.function.TryFunction;
 import io.strati.functional.function.TryRunnable;
 import io.strati.functional.function.TrySupplier;
 
@@ -56,6 +58,8 @@ public class CircuitBreaker {
   private int failures = 0;
   private Throwable lastObservedFailure;
   private long openTime;
+
+  private CircuitBreakerHandle handle = new Handle();
 
   protected CircuitBreaker(final String name, final int threshold, final long timeout,
                            final Integer concurrentCallsInHalfOpenState,
@@ -100,6 +104,29 @@ public class CircuitBreaker {
   }
 
   /**
+   * Execute a {@code TryConsumer<CircuitBreakerHandle>} procedure in a protected context.
+   * This allows to trip the CircuitBreaker without throwing an exception.
+   *
+   * @param protectedCode the procedure that will run in the safe {@code CircuitBreaker} context
+   * @return {@code Try<Void>}
+   */
+  public Try<Void> attempt(final TryConsumer<CircuitBreakerHandle> protectedCode) {
+    return attempt(LazyTry.ofFailable(() -> protectedCode.accept(handle)));
+  }
+
+  /**
+   * Execute a {@code TryFunction<CircuitBreakerHandle, T>} in a protected context.
+   * This allows to trip the CircuitBreaker without throwing an exception.
+   *
+   * @param protectedCode the procedure that will run in the safe {@code CircuitBreaker} context
+   * @param <T> return type of the protected procedure
+   * @return {@code Try<T>}
+   */
+  public <T> Try<T> attempt(final TryFunction<CircuitBreakerHandle, T> protectedCode) {
+    return attempt(LazyTry.ofFailable(() -> protectedCode.apply(handle)));
+  }
+
+  /**
    * Execute a {@code LazyTry<T>} in a protected context.
    *
    * @param protectedCode the procedure that will run in the safe {@code CircuitBreaker} context
@@ -131,22 +158,7 @@ public class CircuitBreaker {
       result = protectedCode.run().get();
     } catch (Throwable t) {
       lastObservedFailure = t;
-      synchronized (monitor) {
-        failures++;
-        switch (state) {
-          case CLOSED:
-            if (failures >= threshold) {
-              moveToOpenState();
-            }
-            break;
-          case HALF_OPEN:
-            if (halfOpenFilter != null) {
-              halfOpenFilter.exit();
-            }
-            moveToOpenState();
-            break;
-        }
-      }
+      notifyFailure();
       return Try.failure(t);
     }
 
@@ -161,6 +173,25 @@ public class CircuitBreaker {
     }
 
     return Try.success(result);
+  }
+
+  private void notifyFailure() {
+    synchronized (monitor) {
+      failures++;
+      switch (state) {
+        case CLOSED:
+          if (failures >= threshold) {
+            moveToOpenState();
+          }
+          break;
+        case HALF_OPEN:
+          if (halfOpenFilter != null) {
+            halfOpenFilter.exit();
+          }
+          moveToOpenState();
+          break;
+      }
+    }
   }
 
   private void update() {
@@ -264,5 +295,14 @@ public class CircuitBreaker {
    */
   public State getState() {
     return state;
+  }
+
+  private class Handle implements CircuitBreakerHandle {
+
+    @Override
+    public void notifyFailure() {
+      CircuitBreaker.this.notifyFailure();
+    }
+
   }
 }
